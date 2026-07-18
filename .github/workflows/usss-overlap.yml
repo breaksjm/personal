@@ -1,0 +1,40 @@
+name: Temporary USSS overlap analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - scripts/run_usss_overlap.py
+      - .github/workflows/usss-overlap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out analysis branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4
+
+      - name: Run official USSA/USSS overlap analysis
+        run: python scripts/run_usss_overlap.py
+
+      - name: Upload audited outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usss-overlap-analysis
+          retention-days: 7
+          if-no-files-found: error
+          path: output
