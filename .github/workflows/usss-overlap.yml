@@ -1,6 +1,12 @@
 name: Temporary USSS overlap analysis
 
 on:
+  push:
+    branches:
+      - agent/usss-overlap-run
+    paths:
+      - scripts/run_usss_overlap.py
+      - .github/workflows/usss-overlap.yml
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
@@ -9,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   analyze:
@@ -18,6 +24,9 @@ jobs:
     steps:
       - name: Check out analysis branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -27,14 +36,41 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --disable-pip-version-check requests beautifulsoup4
 
-      - name: Run official USSA/USSS overlap analysis
-        run: python scripts/run_usss_overlap.py
+      - name: Run official USSA/USSS collection
+        id: collect
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          set +e
+          python scripts/run_usss_overlap.py > diagnostics/run.log 2>&1
+          code=$?
+          set -e
+          cat diagnostics/run.log
+          echo "$code" > diagnostics/exit_code.txt
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Preserve failure diagnostics on the analysis branch
+        if: steps.collect.outputs.exit_code != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add diagnostics
+          if git diff --cached --quiet; then
+            echo "No diagnostic changes."
+          else
+            git commit -m "Preserve USSS collection diagnostics"
+            git push
+          fi
 
       - name: Upload audited outputs
-        if: always()
+        if: steps.collect.outputs.exit_code == '0'
         uses: actions/upload-artifact@v4
         with:
           name: usss-overlap-analysis
           retention-days: 7
           if-no-files-found: error
           path: output
+
+      - name: Enforce successful collection
+        if: steps.collect.outputs.exit_code != '0'
+        run: exit 1
